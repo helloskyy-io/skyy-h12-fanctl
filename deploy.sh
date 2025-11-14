@@ -16,7 +16,8 @@
 #   wget -qO- https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
 # -------------------------------------------------------------------
 
-set -euo pipefail
+set -eo pipefail
+# Note: 'u' flag removed to allow unbound variables (needed for piped curl|bash execution)
 
 # Colors for output
 RED='\033[0;31m'
@@ -45,20 +46,44 @@ fi
 log_info "Starting deployment of HelloSkyy H12 Fan Control..."
 
 # Detect if we're in a git repo or standalone script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/scripts/hs-fan-daemon.sh" ]; then
-    # Running from cloned repo
-    REPO_DIR="$SCRIPT_DIR"
-    log_info "Detected local repository at $REPO_DIR"
+# Handle both cases: running from local repo or piped from curl/wget
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    # Running from a file (local repo or downloaded script)
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "$SCRIPT_DIR/scripts/hs-fan-daemon.sh" ]; then
+        # Running from cloned repo
+        REPO_DIR="$SCRIPT_DIR"
+        log_info "Detected local repository at $REPO_DIR"
+    else
+        # Script file exists but not in repo structure - need to clone
+        REPO_DIR=""
+    fi
 else
-    # Running from curl/wget - need to clone
+    # Running from pipe (curl|bash or wget|bash) - need to clone
+    REPO_DIR=""
+fi
+
+# If we don't have a local repo, clone it
+if [ -z "$REPO_DIR" ]; then
     log_info "Cloning repository..."
+    
+    # Check if git is available
+    if ! command -v git >/dev/null 2>&1; then
+        log_error "git is not installed. Please install git first:"
+        log_error "  apt-get update && apt-get install -y git"
+        exit 1
+    fi
+    
     TEMP_DIR=$(mktemp -d)
     trap "rm -rf $TEMP_DIR" EXIT
-    git clone https://github.com/helloskyy-io/skyy-h12-fanctl.git "$TEMP_DIR" || {
-        log_error "Failed to clone repository. Please check network connectivity."
+    
+    if ! git clone https://github.com/helloskyy-io/skyy-h12-fanctl.git "$TEMP_DIR" 2>&1; then
+        log_error "Failed to clone repository. Possible issues:"
+        log_error "  - Network connectivity"
+        log_error "  - GitHub access"
+        log_error "  - Repository URL incorrect"
         exit 1
-    }
+    fi
     REPO_DIR="$TEMP_DIR"
 fi
 
