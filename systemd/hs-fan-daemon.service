@@ -1,0 +1,18 @@
+[Unit]
+Description=HelloSkyy Supermicro H12 Fan Control Daemon
+After=multi-user.target hs-fan-mode-init.service
+Wants=multi-user.target hs-fan-mode-init.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/hs-fan-daemon.sh
+# Optional: override defaults without editing the script:
+# Environment=POLL_INTERVAL=5
+# Environment=LOG_TAG=hs-fan-daemon
+# Environment=FAN_ZONE=0x00
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
