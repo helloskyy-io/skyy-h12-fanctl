@@ -2,13 +2,18 @@
 #
 # hs-fan-daemon.sh
 #
-# HelloSkyy / Proxmox – Supermicro H12 Fan Controller
-# ---------------------------------------------------
+# HelloSkyy / Proxmox – Supermicro H12 Series Fan Controller
+# ----------------------------------------------------------
+# IMPORTANT: This script is ONLY compatible with Supermicro H12 series
+#            motherboards. It uses H12-specific IPMI commands and will not
+#            work correctly on other Supermicro models or non-Supermicro hardware.
+#
 # - Runs as a simple daemon on the Proxmox host
 # - Reads max(Tctl) across all EPYC CPUs using `sensors`
 # - Uses a hysteresis-based fan curve to avoid flapping
-# - Applies PWM via Supermicro raw IPMI command
-# - Assumes BMC fan mode is already set to FULL (0x01)
+# - Applies PWM via Supermicro H12-specific raw IPMI commands
+# - Sets BMC fan mode to Full Speed (0x01) on startup (REQUIRED for PWM control)
+# - Takes full control of fan speeds via raw PWM commands
 #
 # Notes:
 # - If this daemon stops, the BMC / BIOS logic will eventually take over,
@@ -62,6 +67,42 @@ check_prerequisites() {
     if ! command -v sensors >/dev/null 2>&1; then
         log_error "'sensors' command not found. Install lm-sensors. Exiting."
         exit 1
+    fi
+}
+
+# Initialize BMC fan mode to Full Speed (0x01) - REQUIRED for PWM control
+# This only runs once at daemon startup
+# Checks current mode first and only sets it if needed
+initialize_fan_mode() {
+    local fan_mode="${FAN_MODE:-0x01}"
+    
+    # Check current fan mode
+    local current_mode
+    current_mode="$("$IPMITOOL_BIN" raw 0x30 0x45 0x00 2>/dev/null | tr -d '[:space:]')"
+    
+    if [ "$current_mode" = "01" ]; then
+        log_info "BMC fan mode is already set to Full Speed (0x01). No change needed."
+        return 0
+    fi
+    
+    # Mode is not Full Speed, need to set it
+    log_info "Current BMC fan mode is ${current_mode:-unknown}, setting to Full Speed ($fan_mode) - required for PWM control..."
+    
+    "$IPMITOOL_BIN" raw 0x30 0x45 0x01 "$fan_mode" >/dev/null 2>&1
+    local rc=$?
+    
+    if [ $rc -eq 0 ]; then
+        # Verify the setting was applied
+        local new_mode
+        new_mode="$("$IPMITOOL_BIN" raw 0x30 0x45 0x00 2>/dev/null | tr -d '[:space:]')"
+        if [ "$new_mode" = "01" ]; then
+            log_info "BMC fan mode successfully set to Full Speed (0x01)."
+        else
+            log_warn "Warning: Attempted to set mode to 01, but current mode is $new_mode. PWM control may not work properly."
+        fi
+    else
+        log_error "Failed to set BMC fan mode to Full Speed (rc=$rc). PWM control requires mode 0x01!"
+        log_error "Daemon will continue but may not function correctly."
     fi
 }
 
@@ -304,6 +345,7 @@ on_exit() {
 trap on_exit EXIT
 
 check_prerequisites
+initialize_fan_mode
 log_info "Launching hs-fan-daemon."
 main_loop
 

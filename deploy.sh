@@ -2,10 +2,13 @@
 #
 # deploy.sh
 #
-# HelloSkyy / Proxmox – Supermicro H12 Fan Control Deployment Script
-# -------------------------------------------------------------------
+# HelloSkyy / Proxmox – Supermicro H12 Series Fan Control Deployment Script
+# -------------------------------------------------------------------------
+# IMPORTANT: This solution is ONLY compatible with Supermicro H12 series
+#            motherboards. It uses H12-specific IPMI commands.
+#
 # Automated deployment script for installing and configuring the
-# Supermicro H12 fan control system on Proxmox/Ubuntu/Debian servers.
+# Supermicro H12 series fan control system on Proxmox/Ubuntu/Debian servers.
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
@@ -62,40 +65,86 @@ fi
 # Install prerequisites
 log_info "Installing prerequisites (ipmitool, lm-sensors)..."
 apt-get update -qq
-apt-get install -y ipmitool lm-sensors >/dev/null 2>&1 || {
-    log_error "Failed to install prerequisites."
-    exit 1
-}
+
+# Check and install ipmitool
+if ! command -v ipmitool >/dev/null 2>&1; then
+    log_info "Installing ipmitool..."
+    apt-get install -y ipmitool >/dev/null 2>&1 || {
+        log_error "Failed to install ipmitool."
+        exit 1
+    }
+else
+    log_info "ipmitool already installed."
+fi
+
+# Check and install lm-sensors
+if ! command -v sensors >/dev/null 2>&1; then
+    log_info "Installing lm-sensors..."
+    apt-get install -y lm-sensors >/dev/null 2>&1 || {
+        log_error "Failed to install lm-sensors."
+        exit 1
+    }
+else
+    log_info "lm-sensors already installed."
+fi
+
+# Load IPMI kernel modules if needed
+log_info "Checking IPMI kernel modules..."
+if ! lsmod | grep -q ipmi_msghandler; then
+    log_info "Loading IPMI kernel modules..."
+    modprobe ipmi_msghandler 2>/dev/null || true
+    modprobe ipmi_devintf 2>/dev/null || true
+    modprobe ipmi_si 2>/dev/null || true
+fi
 
 # Verify ipmitool works
 log_info "Verifying IPMI access..."
-if ! ipmitool mc info >/dev/null 2>&1; then
-    log_warn "IPMI may not be accessible. Continuing anyway..."
+if ipmitool mc info >/dev/null 2>&1; then
+    log_info "IPMI access verified successfully."
+else
+    log_warn "IPMI may not be accessible. This is OK if BMC is not configured or accessible."
+    log_warn "The daemon will still start but may not be able to control fans."
+fi
+
+# Configure sensors (non-interactive)
+log_info "Configuring lm-sensors..."
+if [ ! -f /etc/sensors3.conf ] && [ ! -f /etc/sensors.conf ]; then
+    log_info "Running sensors-detect (non-interactive)..."
+    # Auto-answer yes to all sensors-detect prompts
+    yes | sensors-detect --auto >/dev/null 2>&1 || {
+        log_warn "sensors-detect had issues, but continuing..."
+    }
+    
+    # Try to load detected modules
+    if command -v sensors >/dev/null 2>&1; then
+        log_info "Testing sensor detection..."
+        if sensors >/dev/null 2>&1; then
+            log_info "Sensors detected successfully."
+        else
+            log_warn "Sensors may need manual configuration. Run 'sensors-detect' manually if needed."
+        fi
+    fi
+else
+    log_info "Sensors already configured."
 fi
 
 # Install scripts
 log_info "Installing scripts to /usr/local/sbin/..."
 install -m 755 "$REPO_DIR/scripts/hs-fan-daemon.sh" /usr/local/sbin/hs-fan-daemon.sh
-install -m 755 "$REPO_DIR/scripts/hs-fan-mode-init.sh" /usr/local/sbin/hs-fan-mode-init.sh
 
-# Install systemd services
-log_info "Installing systemd services..."
-install -m 644 "$REPO_DIR/systemd/hs-fan-mode-init.service" /etc/systemd/system/hs-fan-mode-init.service
+# Install systemd service
+log_info "Installing systemd service..."
 install -m 644 "$REPO_DIR/systemd/hs-fan-daemon.service" /etc/systemd/system/hs-fan-daemon.service
 
 # Reload systemd
 log_info "Reloading systemd daemon..."
 systemctl daemon-reload
 
-# Enable and start services
-log_info "Enabling and starting services..."
-systemctl enable hs-fan-mode-init.service
+# Enable and start service
+log_info "Enabling and starting fan daemon service..."
 systemctl enable hs-fan-daemon.service
 
-# Start mode init first
-systemctl start hs-fan-mode-init.service || log_warn "Failed to start mode init service (may be OK if already configured)"
-
-# Start daemon
+# Start daemon (it will initialize fan mode on startup)
 systemctl start hs-fan-daemon.service || {
     log_error "Failed to start daemon service."
     exit 1

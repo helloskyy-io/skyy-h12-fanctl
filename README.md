@@ -1,13 +1,33 @@
 # 🖥️ HelloSkyy H12 Fan Control
 
-Intelligent fan control system for Supermicro H12 motherboards running Proxmox, Ubuntu, or Debian. This project provides automated temperature-based fan speed management optimized for EPYC multi-CPU systems where default fan curves often run too hot.
+Intelligent fan control system **specifically designed for Supermicro H12 series motherboards** running Proxmox, Ubuntu, or Debian. This project provides automated temperature-based fan speed management optimized for EPYC multi-CPU systems where default fan curves often run too hot.
+
+**⚠️ Important:** This solution is **only compatible with Supermicro H12 series motherboards**. Use at your own risk on other Supermicro models or non-Supermicro hardware.
 
 ## 📋 Overview
 
-This fan control system consists of two main components:
+This fan control system provides intelligent, temperature-based fan speed management **specifically for Supermicro H12 series motherboards**. The solution uses Supermicro-specific IPMI commands that are only compatible with H12 series hardware.
 
-1. **Mode Initialization Service** (`hs-fan-mode-init`) - Sets the Supermicro BMC to "Heavy I/O" mode (0x04) at boot, which is optimal for EPYC thermals
-2. **Fan Control Daemon** (`hs-fan-daemon`) - Continuously monitors CPU temperatures and adjusts fan speeds using a hysteresis-based curve to prevent fan flapping
+**Important:** This solution **REQUIRES** the Supermicro BMC to be set to **Full Speed mode (0x01)**. The daemon automatically sets this mode on startup and takes full control of fan speeds via raw PWM commands.
+
+**Fan Control Daemon** (`hs-fan-daemon`) - Continuously monitors CPU temperatures and adjusts fan speeds using a hysteresis-based curve to prevent fan flapping. The daemon automatically sets the BMC to Full Speed mode (0x01) on startup, which is required for PWM control to function properly.
+
+## ⚠️ Before You Begin
+
+**Compatibility:** This solution is **only compatible with Supermicro H12 series motherboards**. It uses H12-specific IPMI commands and will not work on other Supermicro models or non-Supermicro hardware.
+
+**This is a custom fan control solution.** If your server is running a bit hot, you may want to try the standard Supermicro settings first:
+
+1. **Try Heavy I/O Mode (0x04) first** - This is a standard Supermicro setting that may provide adequate cooling:
+   ```bash
+   ipmitool raw 0x30 0x45 0x01 0x04
+   ```
+   Monitor temperatures for a while. If this works, you don't need this custom solution.
+
+2. **If Heavy I/O mode isn't sufficient**, then install this custom solution, which:
+   - Requires Full Speed mode (0x01) to enable PWM control
+   - Provides intelligent, temperature-based fan speed management
+   - Automatically adjusts fan speeds based on CPU temperature
 
 ### Key Features
 
@@ -57,24 +77,20 @@ If you prefer manual installation:
    apt install ipmitool lm-sensors -y
    ```
 
-3. **Install scripts:**
+3. **Install script:**
    ```bash
    install -m 755 scripts/hs-fan-daemon.sh /usr/local/sbin/hs-fan-daemon.sh
-   install -m 755 scripts/hs-fan-mode-init.sh /usr/local/sbin/hs-fan-mode-init.sh
    ```
 
-4. **Install systemd services:**
+4. **Install systemd service:**
    ```bash
-   install -m 644 systemd/hs-fan-mode-init.service /etc/systemd/system/
    install -m 644 systemd/hs-fan-daemon.service /etc/systemd/system/
    ```
 
-5. **Enable and start services:**
+5. **Enable and start service:**
    ```bash
    systemctl daemon-reload
-   systemctl enable hs-fan-mode-init.service
    systemctl enable hs-fan-daemon.service
-   systemctl start hs-fan-mode-init.service
    systemctl start hs-fan-daemon.service
    ```
 
@@ -98,7 +114,7 @@ journalctl -f -t hs-fan-daemon
 ipmitool raw 0x30 0x45 0x00
 ```
 
-Expected output: `04` (Heavy I/O mode)
+Expected output: `01` (Full Speed mode - required for PWM control)
 
 ### Monitor Fan Speeds
 
@@ -158,12 +174,15 @@ The system uses Supermicro raw IPMI commands:
 | Hex | Mode | GUI Label | Notes |
 |-----|------|-----------|-------|
 | `00` | Unknown | ❌ Not shown | Invalid on H12 |
-| `01` | Full Speed | ✔ "Full Speed" | Always 100% |
+| `01` | Full Speed | ✔ "Full Speed" | **REQUIRED for this solution** - Enables PWM control |
 | `02` | Optimal | ✔ "Optimal" | Default, often too hot for EPYC |
 | `03` | Unknown | ❌ Not shown | Invalid on H12 |
-| `04` | Heavy I/O | ✔ "Heavy I/O" | **Recommended for EPYC** |
+| `04` | Heavy I/O | ✔ "Heavy I/O" | Standard setting - try this first if server runs hot |
 
-**Note:** The BMC GUI only shows 3 modes, but firmware supports more. Mode 0x04 is optimal for EPYC systems but may not display correctly in the web UI.
+**Important Notes:**
+- **Mode 0x01 (Full Speed)** is **REQUIRED** for this custom fan control solution to work. The daemon automatically sets this mode on startup.
+- **Mode 0x04 (Heavy I/O)** is a standard Supermicro setting you can try **before** installing this solution. If Heavy I/O mode doesn't provide adequate cooling, then use this custom solution which requires Full Speed mode.
+- The BMC GUI only shows 3 modes, but firmware supports more.
 
 ## 📊 Configuration
 
@@ -176,11 +195,7 @@ You can override default settings via systemd environment variables:
 Environment=POLL_INTERVAL=5        # Polling interval in seconds
 Environment=LOG_TAG=hs-fan-daemon  # Syslog tag
 Environment=FAN_ZONE=0x00          # Fan zone (0x00 = all fans)
-```
-
-**For `hs-fan-mode-init.service`:**
-```ini
-Environment=FAN_MODE=0x04          # Fan mode (0x04 = Heavy I/O)
+Environment=FAN_MODE=0x01          # Fan mode (0x01 = Full Speed, REQUIRED)
 Environment=IPMITOOL_BIN=/usr/bin/ipmitool
 ```
 
@@ -250,6 +265,21 @@ Press `Ctrl+C` to stop.
 
 ## 🔧 Troubleshooting
 
+### Compatibility Check
+
+**First, verify you have a Supermicro H12 series motherboard:**
+
+1. **Check motherboard model:**
+   ```bash
+   dmidecode -t baseboard | grep -i "product name"
+   ```
+   Should show an H12 series model (e.g., H12SSL, H12DSI, H12DSU, etc.)
+
+2. **If you don't have an H12 series motherboard:**
+   - This solution will **not work** on your hardware
+   - The IPMI commands are H12-specific
+   - You'll need a different solution for your motherboard model
+
 ### IPMI Not Accessible
 
 If `ipmitool mc info` fails:
@@ -316,15 +346,15 @@ If `sensors` command fails:
 
 ### Fans Not Responding
 
-1. **Verify fan mode is set:**
+1. **Verify fan mode is set to Full Speed (REQUIRED):**
    ```bash
    ipmitool raw 0x30 0x45 0x00
    ```
-   Should return `04`
+   Should return `01` (Full Speed mode - required for PWM control)
 
-2. **Manually set fan mode:**
+2. **Manually set fan mode to Full Speed:**
    ```bash
-   ipmitool raw 0x30 0x45 0x01 0x04
+   ipmitool raw 0x30 0x45 0x01 0x01
    ```
 
 3. **Check if PWM commands work:**
@@ -384,13 +414,12 @@ If `sensors` command fails:
 ```
 skyy-h12-fanctl/
 ├── scripts/
-│   ├── hs-fan-daemon.sh          # Main fan control daemon
-│   └── hs-fan-mode-init.sh       # Fan mode initialization script
+│   └── hs-fan-daemon.sh          # Main fan control daemon (includes mode initialization)
 ├── systemd/
-│   ├── hs-fan-daemon.service     # Daemon systemd service
-│   └── hs-fan-mode-init.service  # Mode init systemd service
+│   └── hs-fan-daemon.service     # Daemon systemd service
 ├── deploy.sh                      # Automated deployment script
 ├── README.md                      # This file
+├── LICENSE                        # MIT License
 └── .gitignore                     # Git ignore rules
 ```
 
@@ -400,7 +429,9 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📄 License
 
-[Add your license here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+The MIT License allows you to use, modify, distribute, and sell this software for any purpose, including commercial use, with minimal restrictions. You are free to use this code in any way you want.
 
 ## 🔗 References
 

@@ -1,7 +1,7 @@
 [Unit]
 Description=HelloSkyy Supermicro H12 Fan Control Daemon
-After=multi-user.target hs-fan-mode-init.service
-Wants=multi-user.target hs-fan-mode-init.service
+After=multi-user.target
+Wants=multi-user.target
 
 [Service]
 Type=simple
