@@ -1,6 +1,6 @@
 # 🖥️ HelloSkyy H12 Fan Control
 
-Intelligent fan control system **specifically designed for Supermicro H12 series motherboards** running Proxmox, Ubuntu, or Debian. This project provides automated temperature-based fan speed management optimized for EPYC multi-CPU systems where default fan curves often run too hot.
+Intelligent fan control system **specifically designed for Supermicro H12 series motherboards** running Proxmox, Ubuntu, or Debian. This project provides automated temperature-based fan speed management optimized for EPYC multi-CPU systems where default fan curves often run too hot in GPU servers.
 
 **⚠️ Important:** This solution is **only compatible with Supermicro H12 series motherboards**. Use at your own risk on other Supermicro models or non-Supermicro hardware.
 
@@ -41,6 +41,18 @@ This fan control system provides intelligent, temperature-based fan speed manage
 
 ## 🚀 Quick Installation
 
+### Prerequisites
+
+Before running the deployment script, ensure `git` is installed:
+
+```bash
+apt-get update && apt-get install -y git
+```
+
+The deployment script will automatically install:
+- `ipmitool` - for IPMI communication
+- `lm-sensors` - for temperature monitoring
+
 ### Automated Deployment (Recommended)
 
 Run this single command on your Proxmox/Ubuntu/Debian server:
@@ -55,7 +67,10 @@ Or using `wget`:
 wget -qO- https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
 ```
 
+**Note:** The deployment script requires `git` to clone the repository. If `git` is not installed, the script will display an error with installation instructions.
+
 The deployment script will:
+- Clone the repository (requires `git`)
 - Install prerequisites (`ipmitool`, `lm-sensors`)
 - Install the fan control scripts
 - Configure systemd services

@@ -47,21 +47,17 @@ log_info "Starting deployment of HelloSkyy H12 Fan Control..."
 
 # Detect if we're in a git repo or standalone script
 # Handle both cases: running from local repo or piped from curl/wget
-if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+REPO_DIR=""
+if [ "${BASH_SOURCE[0]+set}" = "set" ] && [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
     # Running from a file (local repo or downloaded script)
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     if [ -f "$SCRIPT_DIR/scripts/hs-fan-daemon.sh" ]; then
         # Running from cloned repo
         REPO_DIR="$SCRIPT_DIR"
         log_info "Detected local repository at $REPO_DIR"
-    else
-        # Script file exists but not in repo structure - need to clone
-        REPO_DIR=""
     fi
-else
-    # Running from pipe (curl|bash or wget|bash) - need to clone
-    REPO_DIR=""
 fi
+# If REPO_DIR is still empty, we're running from pipe - will clone below
 
 # If we don't have a local repo, clone it
 if [ -z "$REPO_DIR" ]; then
