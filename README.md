@@ -76,6 +76,37 @@ The deployment script will:
 - Configure systemd services
 - Enable and start the services automatically
 
+**Note:** The deployment script is **idempotent** - it's safe to run multiple times. It will detect if files have changed and only restart the service if updates are found.
+
+### Updating an Existing Installation
+
+To update to the latest version, you have two options:
+
+**Option 1: Use the update script (Recommended)**
+```bash
+curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/update.sh | bash
+```
+
+The update script will:
+- Check if an update is needed (compares file checksums)
+- Create a backup of current installation
+- Install updated files
+- Restart the service only if changes were detected
+- Verify the service is running after update
+
+**Option 2: Re-run the deployment script**
+```bash
+curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
+```
+
+The deployment script is idempotent and will:
+- Detect existing installation
+- Compare file checksums
+- Only restart the service if files have changed
+- Skip unnecessary operations if already up-to-date
+
+**Best Practice:** Use the update script for updates, as it includes backup functionality and clearer update messaging.
+
 ### Manual Installation
 
 If you prefer manual installation:
@@ -157,13 +188,17 @@ The daemon uses a hysteresis-based fan curve to prevent rapid oscillations:
 
 | Temperature Range | Fan Speed | Notes |
 |------------------|-----------|-------|
-| < 45°C | 40% | Low power, quiet operation |
-| 45-49°C | 50% | Light load |
-| 50-54°C | 60% | Moderate load |
-| 55-59°C | 70% | Increased cooling |
-| 60-64°C | 80% | High load |
-| 65-69°C | 90% | Very high load |
-| ≥ 70°C | 100% | Maximum cooling |
+| < 35°C | 20% | Idle, very quiet operation |
+| 35-39°C | 30% | Low load, quiet operation |
+| 40-44°C | 40% | Light load, quiet operation |
+| 45-49°C | 50% | Moderate load |
+| 50-54°C | 60% | Increased load |
+| 55-59°C | 70% | High load |
+| 60-64°C | 80% | Very high load |
+| 65-69°C | 90% | Maximum load |
+| ≥ 70°C | 100% | Emergency cooling |
+
+**Note:** Some fans may not be able to run at 20% or 30% due to hardware minimums. The daemon will attempt these speeds, but the fan may operate at its minimum speed instead.
 
 **Hysteresis Logic:**
 - To increase speed: temperature must exceed the upper threshold
@@ -432,7 +467,8 @@ skyy-h12-fanctl/
 │   └── hs-fan-daemon.sh          # Main fan control daemon (includes mode initialization)
 ├── systemd/
 │   └── hs-fan-daemon.service     # Daemon systemd service
-├── deploy.sh                      # Automated deployment script
+├── deploy.sh                      # Automated deployment script (idempotent)
+├── update.sh                      # Update script with backup functionality
 ├── README.md                      # This file
 ├── LICENSE                        # MIT License
 └── .gitignore                     # Git ignore rules

@@ -149,6 +149,45 @@ else
     log_info "Sensors already configured."
 fi
 
+# Check if already installed
+INSTALLED=false
+SERVICE_RUNNING=false
+NEEDS_RESTART=false
+
+if [ -f /usr/local/sbin/hs-fan-daemon.sh ]; then
+    INSTALLED=true
+    log_info "Existing installation detected."
+    
+    # Check if files have changed (using checksums)
+    if command -v md5sum >/dev/null 2>&1; then
+        OLD_DAEMON_MD5=$(md5sum /usr/local/sbin/hs-fan-daemon.sh 2>/dev/null | cut -d' ' -f1)
+        NEW_DAEMON_MD5=$(md5sum "$REPO_DIR/scripts/hs-fan-daemon.sh" 2>/dev/null | cut -d' ' -f1)
+        
+        if [ "$OLD_DAEMON_MD5" != "$NEW_DAEMON_MD5" ]; then
+            log_info "Daemon script has been updated. Service will be restarted."
+            NEEDS_RESTART=true
+        fi
+    fi
+    
+    # Check if service file changed
+    if [ -f /etc/systemd/system/hs-fan-daemon.service ]; then
+        if command -v md5sum >/dev/null 2>&1; then
+            OLD_SERVICE_MD5=$(md5sum /etc/systemd/system/hs-fan-daemon.service 2>/dev/null | cut -d' ' -f1)
+            NEW_SERVICE_MD5=$(md5sum "$REPO_DIR/systemd/hs-fan-daemon.service" 2>/dev/null | cut -d' ' -f1)
+            
+            if [ "$OLD_SERVICE_MD5" != "$NEW_SERVICE_MD5" ]; then
+                log_info "Systemd service file has been updated."
+                NEEDS_RESTART=true
+            fi
+        fi
+    fi
+    
+    # Check if service is running
+    if systemctl is-active --quiet hs-fan-daemon.service 2>/dev/null; then
+        SERVICE_RUNNING=true
+    fi
+fi
+
 # Install scripts
 log_info "Installing scripts to /usr/local/sbin/..."
 install -m 755 "$REPO_DIR/scripts/hs-fan-daemon.sh" /usr/local/sbin/hs-fan-daemon.sh
@@ -157,19 +196,39 @@ install -m 755 "$REPO_DIR/scripts/hs-fan-daemon.sh" /usr/local/sbin/hs-fan-daemo
 log_info "Installing systemd service..."
 install -m 644 "$REPO_DIR/systemd/hs-fan-daemon.service" /etc/systemd/system/hs-fan-daemon.service
 
-# Reload systemd
+# Reload systemd (always needed after service file changes)
 log_info "Reloading systemd daemon..."
 systemctl daemon-reload
 
-# Enable and start service
-log_info "Enabling and starting fan daemon service..."
-systemctl enable hs-fan-daemon.service
+# Enable service (idempotent - safe to run multiple times)
+log_info "Ensuring service is enabled..."
+systemctl enable hs-fan-daemon.service >/dev/null 2>&1
 
-# Start daemon (it will initialize fan mode on startup)
-systemctl start hs-fan-daemon.service || {
-    log_error "Failed to start daemon service."
-    exit 1
-}
+# Handle service start/restart
+if [ "$INSTALLED" = true ] && [ "$SERVICE_RUNNING" = true ]; then
+    if [ "$NEEDS_RESTART" = true ]; then
+        log_info "Restarting fan daemon service to apply updates..."
+        systemctl restart hs-fan-daemon.service || {
+            log_error "Failed to restart daemon service."
+            exit 1
+        }
+    else
+        log_info "Service is already running and up-to-date. No restart needed."
+    fi
+elif [ "$INSTALLED" = true ] && [ "$SERVICE_RUNNING" = false ]; then
+    log_info "Starting fan daemon service..."
+    systemctl start hs-fan-daemon.service || {
+        log_error "Failed to start daemon service."
+        exit 1
+    }
+else
+    # First installation
+    log_info "Starting fan daemon service..."
+    systemctl start hs-fan-daemon.service || {
+        log_error "Failed to start daemon service."
+        exit 1
+    }
+fi
 
 # Verify services are running
 sleep 2
@@ -187,6 +246,7 @@ log_info "  Check status:    systemctl status hs-fan-daemon"
 log_info "  View logs:       journalctl -f -t hs-fan-daemon"
 log_info "  Stop daemon:     systemctl stop hs-fan-daemon"
 log_info "  Restart daemon:  systemctl restart hs-fan-daemon"
+log_info "  Update:          curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/update.sh | bash"
 log_info ""
 log_info "The fan control system is now active and will automatically"
 log_info "adjust fan speeds based on CPU temperature."
