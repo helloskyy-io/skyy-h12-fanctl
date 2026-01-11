@@ -29,8 +29,15 @@
 # ipmitool path (override via environment if needed)
 IPMITOOL_BIN="${IPMITOOL_BIN:-/usr/bin/ipmitool}"
 
-# Fan zone to control (0x00 = all fans on many H12 boards)
-FAN_ZONE="${FAN_ZONE:-0x00}"
+# Fan zones to control (comma-separated, e.g., "0x00,0x01,0x02")
+# Default: control all common zones on H12 boards
+# Some H12 boards have fans split across multiple zones
+FAN_ZONES="${FAN_ZONES:-0x00,0x01,0x02}"
+
+# Legacy support: if FAN_ZONE is set, use it as single zone
+if [ -n "${FAN_ZONE:-}" ]; then
+    FAN_ZONES="$FAN_ZONE"
+fi
 
 # Polling interval in seconds
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
@@ -281,20 +288,42 @@ next_level_with_hysteresis() {
     esac
 }
 
-# Applies a PWM value if it differs from the last applied value.
+# Applies a PWM value to all configured fan zones if it differs from the last applied value.
 apply_pwm_if_changed() {
     local new_pwm="$1"
     local last_pwm="$2"
 
-    # Only send IPMI command if PWM actually changed
+    # Only send IPMI commands if PWM actually changed
     if [ "$new_pwm" != "$last_pwm" ]; then
-        "$IPMITOOL_BIN" raw 0x30 0x70 0x66 0x01 "$FAN_ZONE" "$new_pwm" >/dev/null 2>&1
-        local rc=$?
-        if [ $rc -eq 0 ]; then
-            log_info "Set PWM=${new_pwm} (previous=${last_pwm:-none})."
+        local zones_changed=0
+        local zones_failed=0
+        local zones_list=""
+        
+        # Apply PWM to each zone
+        IFS=',' read -ra ZONE_ARRAY <<< "$FAN_ZONES"
+        for zone in "${ZONE_ARRAY[@]}"; do
+            # Trim whitespace from zone
+            zone=$(echo "$zone" | xargs)
+            
+            "$IPMITOOL_BIN" raw 0x30 0x70 0x66 0x01 "$zone" "$new_pwm" >/dev/null 2>&1
+            local rc=$?
+            if [ $rc -eq 0 ]; then
+                zones_changed=$((zones_changed + 1))
+                zones_list="${zones_list}${zones_list:+, }${zone}"
+            else
+                zones_failed=$((zones_failed + 1))
+                log_warn "Failed to set PWM=${new_pwm} for zone ${zone} (rc=$rc)."
+            fi
+        done
+        
+        if [ $zones_changed -gt 0 ]; then
+            log_info "Set PWM=${new_pwm} on ${zones_changed} zone(s) [${zones_list}] (previous=${last_pwm:-none})."
+            if [ $zones_failed -gt 0 ]; then
+                log_warn "${zones_failed} zone(s) failed to update."
+            fi
             echo "$new_pwm"
         else
-            log_error "Failed to set PWM=${new_pwm} (rc=$rc). Keeping previous=${last_pwm:-none}."
+            log_error "Failed to set PWM=${new_pwm} on any zone. Keeping previous=${last_pwm:-none}."
             echo "$last_pwm"
         fi
     else
@@ -311,7 +340,7 @@ main_loop() {
     local last_pwm=""
     local last_level=""
 
-    log_info "Starting main loop (interval=${POLL_INTERVAL}s, zone=${FAN_ZONE})."
+    log_info "Starting main loop (interval=${POLL_INTERVAL}s, zones=${FAN_ZONES})."
 
     while true; do
         # Read current max Tctl

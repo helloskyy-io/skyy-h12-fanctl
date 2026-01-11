@@ -497,6 +497,25 @@ The MIT License allows you to use, modify, distribute, and sell this software fo
 - For multi-socket systems, the daemon correctly uses maximum temperature across all CPUs
 - The hysteresis logic prevents unnecessary fan speed changes during temperature fluctuations
 
+## 📊 Quick Monitoring Commands
+
+**Watch fan speeds and temperatures together:**
+```bash
+watch -n 2 'echo "=== FAN SPEEDS ===" && ipmitool sensor | grep -i fan && echo "" && echo "=== CPU TEMPS ===" && sensors | grep Tctl'
+```
+
+**Monitor daemon logs in real-time:**
+```bash
+journalctl -f -t hs-fan-daemon
+```
+
+**Quick status check:**
+```bash
+systemctl status hs-fan-daemon && echo "" && sensors | grep Tctl && ipmitool sensor | grep -i fan | head -3
+```
+
+**See [MONITORING.md](MONITORING.md) for a complete list of monitoring and testing commands.**
+
 ---
 
 **Maintained by:** HelloSkyy  

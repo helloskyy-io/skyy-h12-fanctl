@@ -9,7 +9,8 @@ ExecStart=/usr/local/sbin/hs-fan-daemon.sh
 # Optional: override defaults without editing the script:
 # Environment=POLL_INTERVAL=5
 # Environment=LOG_TAG=hs-fan-daemon
-# Environment=FAN_ZONE=0x00
+# Environment=FAN_ZONES=0x00,0x01,0x02
+# Legacy: Environment=FAN_ZONE=0x00 (will be converted to FAN_ZONES)
 Restart=always
 RestartSec=5
 
