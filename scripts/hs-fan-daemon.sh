@@ -126,14 +126,18 @@ read_max_tctl() {
         }'
 }
 
-# Map logical fan level (40,50,60,70,80,90,100) to PWM hex.
+# Map logical fan level (20,30,40,50,60,70,80,90,100) to PWM hex.
 # Uses numeric comparison and sanitizes input to digits only.
 level_to_pwm() {
     local raw_level="$1"
     # Keep only digits (defensive: strip spaces, CR, etc.)
     local lvl="${raw_level//[^0-9]/}"
 
-    if   [ "$lvl" -eq 40 ]; then
+    if   [ "$lvl" -eq 20 ]; then
+        echo "0x14"   # 20%
+    elif [ "$lvl" -eq 30 ]; then
+        echo "0x1E"   # 30%
+    elif [ "$lvl" -eq 40 ]; then
         echo "0x28"   # 40%
     elif [ "$lvl" -eq 50 ]; then
         echo "0x32"   # 50%
@@ -157,7 +161,9 @@ level_to_pwm() {
 # used only when there is no previous level recorded.
 #
 # Neutral bands:
-# < 45   -> 40%
+# < 35   -> 20%
+# 35–39  -> 30%
+# 40–44  -> 40%
 # 45–49  -> 50%
 # 50–54  -> 60%
 # 55–59  -> 70%
@@ -166,7 +172,11 @@ level_to_pwm() {
 # >= 70  -> 100%
 initial_level_from_temp() {
     local t="$1"
-    if   [ "$t" -lt 45 ]; then
+    if   [ "$t" -lt 35 ]; then
+        echo 20
+    elif [ "$t" -lt 40 ]; then
+        echo 30
+    elif [ "$t" -lt 45 ]; then
         echo 40
     elif [ "$t" -lt 50 ]; then
         echo 50
@@ -200,9 +210,25 @@ next_level_with_hysteresis() {
     fi
 
     case "$last_level" in
+        20)
+            # 20 -> 30 when temp >= 37
+            if [ "$temp" -ge 37 ]; then echo 30; else echo 20; fi
+            ;;
+        30)
+            # 30 -> 40 when temp >= 42
+            # 30 -> 20 when temp <= 33
+            if   [ "$temp" -ge 42 ]; then echo 40
+            elif [ "$temp" -le 33 ]; then echo 20
+            else echo 30
+            fi
+            ;;
         40)
             # 40 -> 50 when temp >= 47
-            if [ "$temp" -ge 47 ]; then echo 50; else echo 40; fi
+            # 40 -> 30 when temp <= 38
+            if   [ "$temp" -ge 47 ]; then echo 50
+            elif [ "$temp" -le 38 ]; then echo 30
+            else echo 40
+            fi
             ;;
         50)
             # 50 -> 60 when temp >= 52
