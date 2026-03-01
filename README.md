@@ -199,7 +199,7 @@ The daemon uses a hysteresis-based fan curve driven by **CPU temperature** (max 
 | 65-69°C | 90% | Maximum load |
 | ≥ 70°C | 100% | Emergency cooling |
 
-\* **Minimum fan level** is set by `FAN_MIN_LEVEL` (default **40**%). You can set it lower (20 or 30) in the service file for quieter idle if desired.
+\* **Minimum fan level** is set by `FAN_MIN_LEVEL` (default **40**%). You can set it lower (20 or 30) in the service file for quieter idle. On some boards—especially with consumer or low‑RPM fans—the BMC may treat very low RPM as unsafe and override 20% or 30% to 100%; 40% is a reliable minimum for those setups.
 
 **Note:** Some fans may not be able to run at 20% or 30% due to hardware minimums. The daemon will attempt these speeds, but the fan may operate at its minimum speed instead.
 
@@ -279,10 +279,10 @@ sudo systemctl restart hs-fan-daemon
 
 | Variable | What it does | Default | When to change it |
 |----------|----------------|---------|--------------------|
-| **FAN_MIN_LEVEL** | Minimum fan speed in %. Allowed: 20, 30, 40. Idle never goes below this. | 40 | Set lower (e.g. 20) for quieter idle. |
+| **FAN_MIN_LEVEL** | Minimum fan speed in %. Allowed: 20, 30, 40. Idle never goes below this. | 40 | Set lower if your BMC accepts it; on some boards 20–30% is overridden to 100% (RPM safety). |
 | **POLL_INTERVAL** | How often (seconds) the daemon reads temps and may update fan speed. | 5 | Increase (e.g. 10) to poll less often; decrease for faster response. |
 | **LOG_TAG** | Tag used in syslog and `journalctl -t ...`. | hs-fan-daemon | Only if you need a different log tag. |
-| **FAN_ZONES** | BMC fan zones to control (comma-separated). | 0x00,0x01,0x02 | If your H12 board uses different zones. |
+| **FAN_ZONES** | BMC fan zones to control (comma-separated). | 0x00,0x01,0x02 | Single-CPU H12: try **0x00** only if the daemon’s PWM seems ignored (fans stay low). Dual-CPU: usually 0x00,0x01,0x02. |
 | **FAN_ZONE** | Legacy: single zone. If set, overrides FAN_ZONES. | — | Prefer **FAN_ZONES** for new configs. |
 | **FAN_MODE** | BMC fan mode. Must be 0x01 (Full Speed) for PWM control. | 0x01 | Do not change. |
 | **IPMITOOL_BIN** | Path to `ipmitool`. | /usr/bin/ipmitool | Only if `ipmitool` is elsewhere. |
