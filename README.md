@@ -86,16 +86,27 @@ systemctl start hs-fan-daemon.service
 | `systemctl start hs-fan-daemon` | Start the daemon. |
 | `systemctl stop hs-fan-daemon` | Stop the daemon (BMC may then run fans at its own default). |
 | `systemctl restart hs-fan-daemon` | Restart after changing config. |
-| `journalctl -f -t hs-fan-daemon` | Stream daemon logs (temp, fan level, PWM). |
+| `journalctl -t hs-fan-daemon -n 20 --no-pager` | Read last 20 daemon log lines (temp, commanded fan level %, PWM). |
+| `journalctl -f -t hs-fan-daemon` | Stream daemon logs live. |
+| `journalctl -t hs-fan-daemon -n 3 --no-pager` | Check current commanded speed: last lines show e.g. `level=40%, PWM=0x28`. |
 | `systemctl edit hs-fan-daemon.service` | Override config (drop-in); then run `daemon-reload` and `restart`. |
-| `ipmitool sensor \| grep -i fan` | Show fan RPM (run as root if needed). |
+| `ipmitool sensor \| grep -i fan` | Show actual fan RPM (run as root if needed). |
 | `sensors \| grep Tctl` | Show CPU temps the daemon uses. |
 
 ---
 
 ## 5. Configuration
 
-**Where it lives:** `/etc/systemd/system/hs-fan-daemon.service` (or overrides via `systemctl edit hs-fan-daemon.service`). Editing the repo template has no effect until you overwrite the installed file (see section 2).
+Configuration is in the systemd service file on the server: `/etc/systemd/system/hs-fan-daemon.service`. Edit that file (e.g. set `FAN_MIN_LEVEL=30`), then run:
+
+```bash
+systemctl daemon-reload
+systemctl restart hs-fan-daemon
+```
+
+Alternatively use `systemctl edit hs-fan-daemon.service` to add overrides without editing the main file; again follow with `daemon-reload` and `restart`.
+
+To replace the whole file with the latest template from the repo, see section 2.
 
 **Options:**
 
