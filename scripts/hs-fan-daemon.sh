@@ -29,10 +29,8 @@
 # ipmitool path (override via environment if needed)
 IPMITOOL_BIN="${IPMITOOL_BIN:-/usr/bin/ipmitool}"
 
-# Fan zones to control (comma-separated, e.g., "0x00,0x01,0x02")
-# Default: control all common zones on H12 boards
-# Some H12 boards have fans split across multiple zones
-FAN_ZONES="${FAN_ZONES:-0x00,0x01,0x02}"
+# Fan zones to control (comma-separated). H12 boards have 2 IPMI zones: 0x00 = general-purpose (FAN1..8), 0x01 = CPU fan headers (FANA,FANB). 0x02/0x03 do nothing on H12.
+FAN_ZONES="${FAN_ZONES:-0x00,0x01}"
 
 # Legacy support: if FAN_ZONE is set, use it as single zone
 if [ -n "${FAN_ZONE:-}" ]; then

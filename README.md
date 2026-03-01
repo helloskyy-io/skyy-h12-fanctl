@@ -115,9 +115,11 @@ To replace the whole file with the latest template from the repo, see section 2.
 | **FAN_MIN_LEVEL** | Minimum fan % (20, 30, 40, 50, … 100). Idle never goes below this. | 40 |
 | **POLL_INTERVAL** | Seconds between temperature checks. | 5 |
 | **LOG_TAG** | syslog / journalctl tag. | hs-fan-daemon |
-| **FAN_ZONES** | BMC zones to control (e.g. `0x00` or `0x00,0x01,0x02`). | 0x00,0x01,0x02 |
+| **FAN_ZONES** | BMC zones to control. On H12 the only zones that control fans are `0x00,0x01`. | 0x00,0x01 |
 
-On some boards (especially with low-RPM fans), the BMC may override 20% or 30% to 100%; 40% is a safe default. Single-CPU H12: if the daemon’s PWM seems ignored, try `FAN_ZONES=0x00` only.
+**H12 fan zones.** Supermicro H12 (and H10/X10/X12) boards expose **two** IPMI fan zones. Zone 0 (0x00) is the general-purpose bank (FAN1–FAN8, main headers). Zone 1 (0x01) is the CPU fan headers (FANA, FANB). Zones 0x02 and 0x03 do nothing on these boards. You can wire zone 1 to GPU or other auxiliary fans if you prefer. The default `0x00,0x01` is correct for H12; do not add 0x02/0x03.
+
+On some boards (especially with low-RPM fans), the BMC may override 20% or 30% to 100%; 40% is a safe default. If a fan does not respond, test zones manually (stop daemon, send PWM to one zone at a time) to confirm which zone drives it.
 
 ---
 

@@ -14,8 +14,8 @@ Environment=POLL_INTERVAL=5
 # Tag used in syslog and journalctl (e.g. journalctl -t hs-fan-daemon).
 Environment=LOG_TAG=hs-fan-daemon
 #
-# BMC fan zones to control (comma-separated). Dual-CPU H12: 0x00,0x01,0x02. Single-CPU H12: try 0x00 only if fans ignore the daemon.
-Environment=FAN_ZONES=0x00,0x01,0x02
+# BMC fan zones to control (comma-separated). H12: 0x00=general (FAN1..8), 0x01=CPU headers (FANA,FANB). 0x02/0x03 do nothing.
+Environment=FAN_ZONES=0x00,0x01
 #
 # Minimum fan speed in percent. Allowed: 20–100 in steps of 10. Default 40.
 Environment=FAN_MIN_LEVEL=40
