@@ -10,10 +10,10 @@
 # Automated deployment script for installing and configuring the
 # Supermicro H12 series fan control system on Proxmox/Ubuntu/Debian servers.
 #
-# Usage:
-#   curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
+# Usage (sudo must apply to bash so the script runs as root):
+#   curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | sudo bash
 #   OR
-#   wget -qO- https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
+#   wget -qO- https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | sudo bash
 # -------------------------------------------------------------------
 
 set -eo pipefail
@@ -40,7 +40,8 @@ log_error() {
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    log_error "This script must be run as root. Please use sudo."
+    log_error "This script must be run as root."
+    log_error "Use: curl -sSL ... | sudo bash   (sudo must apply to bash, not curl)"
     exit 1
 fi
 

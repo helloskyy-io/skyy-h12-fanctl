@@ -58,13 +58,13 @@ The deployment script will automatically install:
 Run this single command on your Proxmox/Ubuntu/Debian server:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | sudo bash
 ```
 
 Or using `wget`:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
+wget -qO- https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | sudo bash
 ```
 
 **Note:** The deployment script requires `git` to clone the repository. If `git` is not installed, the script will display an error with installation instructions.
@@ -96,7 +96,7 @@ The update script will:
 
 **Option 2: Re-run the deployment script**
 ```bash
-curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/helloskyy-io/skyy-h12-fanctl/main/deploy.sh | sudo bash
 ```
 
 The deployment script is idempotent and will:
