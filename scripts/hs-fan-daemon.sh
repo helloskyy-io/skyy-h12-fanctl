@@ -42,10 +42,10 @@ fi
 # Polling interval in seconds
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 
-# Minimum fan level (%). Allowed: 20, 30, 40. Default 40; set lower in the service file if desired.
+# Minimum fan level (%). Allowed: 20, 30, 40, 50, 60, 70, 80, 90, 100. Default 40.
 FAN_MIN_LEVEL="${FAN_MIN_LEVEL:-40}"
 case "$FAN_MIN_LEVEL" in
-    20|30|40) ;;
+    20|30|40|50|60|70|80|90|100) ;;
     *) FAN_MIN_LEVEL=40 ;;
 esac
 

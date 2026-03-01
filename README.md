@@ -112,7 +112,7 @@ To replace the whole file with the latest template from the repo, see section 2.
 
 | Variable | Meaning | Default |
 |----------|---------|---------|
-| **FAN_MIN_LEVEL** | Minimum fan % (20, 30, or 40). Idle never goes below this. | 40 |
+| **FAN_MIN_LEVEL** | Minimum fan % (20, 30, 40, 50, … 100). Idle never goes below this. | 40 |
 | **POLL_INTERVAL** | Seconds between temperature checks. | 5 |
 | **LOG_TAG** | syslog / journalctl tag. | hs-fan-daemon |
 | **FAN_ZONES** | BMC zones to control (e.g. `0x00` or `0x00,0x01,0x02`). | 0x00,0x01,0x02 |

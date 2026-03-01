@@ -17,7 +17,7 @@ Environment=LOG_TAG=hs-fan-daemon
 # BMC fan zones to control (comma-separated). Dual-CPU H12: 0x00,0x01,0x02. Single-CPU H12: try 0x00 only if fans ignore the daemon.
 Environment=FAN_ZONES=0x00,0x01,0x02
 #
-# Minimum fan speed in percent. Allowed: 20, 30, or 40. Default 40; set lower (e.g. 20) if you want quieter idle.
+# Minimum fan speed in percent. Allowed: 20–100 in steps of 10. Default 40.
 Environment=FAN_MIN_LEVEL=40
 Restart=always
 RestartSec=5
