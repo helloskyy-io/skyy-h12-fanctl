@@ -23,6 +23,7 @@ set -eo pipefail
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 log_info() {
@@ -169,19 +170,6 @@ if [ -f /usr/local/sbin/hs-fan-daemon.sh ]; then
         fi
     fi
     
-    # Check if service file changed
-    if [ -f /etc/systemd/system/hs-fan-daemon.service ]; then
-        if command -v md5sum >/dev/null 2>&1; then
-            OLD_SERVICE_MD5=$(md5sum /etc/systemd/system/hs-fan-daemon.service 2>/dev/null | cut -d' ' -f1)
-            NEW_SERVICE_MD5=$(md5sum "$REPO_DIR/systemd/hs-fan-daemon.service" 2>/dev/null | cut -d' ' -f1)
-            
-            if [ "$OLD_SERVICE_MD5" != "$NEW_SERVICE_MD5" ]; then
-                log_info "Systemd service file has been updated."
-                NEEDS_RESTART=true
-            fi
-        fi
-    fi
-    
     # Check if service is running
     if systemctl is-active --quiet hs-fan-daemon.service 2>/dev/null; then
         SERVICE_RUNNING=true
@@ -192,11 +180,26 @@ fi
 log_info "Installing scripts to /usr/local/sbin/..."
 install -m 755 "$REPO_DIR/scripts/hs-fan-daemon.sh" /usr/local/sbin/hs-fan-daemon.sh
 
-# Install systemd service
-log_info "Installing systemd service..."
-install -m 644 "$REPO_DIR/systemd/hs-fan-daemon.service" /etc/systemd/system/hs-fan-daemon.service
+# Install systemd service from template (only if not already present; idempotent)
+if [ ! -f /etc/systemd/system/hs-fan-daemon.service ]; then
+    log_info "Installing systemd service from template..."
+    install -m 644 "$REPO_DIR/systemd/hs-fan-daemon.service.template" /etc/systemd/system/hs-fan-daemon.service
+else
+    log_info "Systemd service file already exists; leaving it unchanged (edit via systemctl edit hs-fan-daemon)."
+    # Check if template and installed file have the same Environment keys; if not, require manual intervention
+    template_keys=$(grep -E '^Environment=' "$REPO_DIR/systemd/hs-fan-daemon.service.template" 2>/dev/null | sed 's/^Environment=\([^=]*\)=.*/\1/' | sort -u)
+    installed_keys=$(grep -E '^Environment=' /etc/systemd/system/hs-fan-daemon.service 2>/dev/null | sed 's/^Environment=\([^=]*\)=.*/\1/' | sort -u)
+    missing_in_installed=$(comm -23 <(echo "$template_keys") <(echo "$installed_keys"))
+    extra_in_installed=$(comm -13 <(echo "$template_keys") <(echo "$installed_keys"))
+    if [ -n "$missing_in_installed" ] || [ -n "$extra_in_installed" ]; then
+        echo ""
+        echo -e "${BOLD}*** CONFIG DRIFT: The service template and your installed config do not match. ***${NC}"
+        echo -e "${BOLD}    Manual intervention required. See README for how to copy/merge the template.${NC}"
+        echo ""
+    fi
+fi
 
-# Reload systemd (always needed after service file changes)
+# Reload systemd (needed when we just installed the unit; harmless otherwise)
 log_info "Reloading systemd daemon..."
 systemctl daemon-reload
 

@@ -1,0 +1,26 @@
+[Unit]
+Description=HelloSkyy Supermicro H12 Fan Control Daemon
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/hs-fan-daemon.sh
+# Change values below to tune; restart the service after editing (systemctl restart hs-fan-daemon).
+#
+# How often (seconds) the daemon reads temperatures and may update fan speed.
+Environment=POLL_INTERVAL=5
+#
+# Tag used in syslog and journalctl (e.g. journalctl -t hs-fan-daemon).
+Environment=LOG_TAG=hs-fan-daemon
+#
+# BMC fan zones to control (comma-separated). Default: all common H12 zones.
+Environment=FAN_ZONES=0x00,0x01,0x02
+#
+# Minimum fan speed in percent. Allowed: 20, 30, or 40. Default 40; set lower (e.g. 20) if you want quieter idle.
+Environment=FAN_MIN_LEVEL=40
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

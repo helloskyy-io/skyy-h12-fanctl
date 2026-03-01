@@ -1,6 +1,6 @@
 # 🖥️ HelloSkyy H12 Fan Control
 
-Intelligent fan control system **specifically designed for Supermicro H12 series motherboards** running Proxmox, Ubuntu, or Debian. This project provides automated temperature-based fan speed management optimized for EPYC multi-CPU systems where default fan curves often run too hot in GPU servers.
+Intelligent fan control system **specifically designed for Supermicro H12 series motherboards** running Proxmox, Ubuntu, or Debian. This project provides automated temperature-based fan speed management optimized for EPYC multi-CPU systems where default fan curves often run too hot.
 
 **⚠️ Important:** This solution is **only compatible with Supermicro H12 series motherboards**. Use at your own risk on other Supermicro models or non-Supermicro hardware.
 
@@ -128,9 +128,10 @@ If you prefer manual installation:
    install -m 755 scripts/hs-fan-daemon.sh /usr/local/sbin/hs-fan-daemon.sh
    ```
 
-4. **Install systemd service:**
+4. **Install systemd service** (from template; only if you don't already have a unit file):
    ```bash
-   install -m 644 systemd/hs-fan-daemon.service /etc/systemd/system/
+   # Copy template once; leave existing file alone if present
+   [ -f /etc/systemd/system/hs-fan-daemon.service ] || install -m 644 systemd/hs-fan-daemon.service.template /etc/systemd/system/hs-fan-daemon.service
    ```
 
 5. **Enable and start service:**
@@ -184,19 +185,21 @@ ipmitool sensor | grep -i CPU
 
 ### Fan Speed Curve
 
-The daemon uses a hysteresis-based fan curve to prevent rapid oscillations:
+The daemon uses a hysteresis-based fan curve driven by **CPU temperature** (max Tctl across all EPYC CPUs).
 
 | Temperature Range | Fan Speed | Notes |
 |------------------|-----------|-------|
-| < 35°C | 20% | Idle, very quiet operation |
-| 35-39°C | 30% | Low load, quiet operation |
-| 40-44°C | 40% | Light load, quiet operation |
+| < 35°C | 20%* | Idle |
+| 35-39°C | 30% | Low load |
+| 40-44°C | 40% | Light load |
 | 45-49°C | 50% | Moderate load |
 | 50-54°C | 60% | Increased load |
 | 55-59°C | 70% | High load |
 | 60-64°C | 80% | Very high load |
 | 65-69°C | 90% | Maximum load |
 | ≥ 70°C | 100% | Emergency cooling |
+
+\* **Minimum fan level** is set by `FAN_MIN_LEVEL` (default **40**%). You can set it lower (20 or 30) in the service file for quieter idle if desired.
 
 **Note:** Some fans may not be able to run at 20% or 30% due to hardware minimums. The daemon will attempt these speeds, but the fan may operate at its minimum speed instead.
 
@@ -236,35 +239,55 @@ The system uses Supermicro raw IPMI commands:
 
 ## 📊 Configuration
 
-### Environment Variables
+### Where to change settings
 
-You can override default settings via systemd environment variables:
+**The place that matters is the installed service file on the server**, not the repo:
 
-**For `hs-fan-daemon.service`:**
-```ini
-Environment=POLL_INTERVAL=5        # Polling interval in seconds
-Environment=LOG_TAG=hs-fan-daemon  # Syslog tag
-Environment=FAN_ZONE=0x00          # Fan zone (0x00 = all fans)
-Environment=FAN_MODE=0x01          # Fan mode (0x01 = Full Speed, REQUIRED)
-Environment=IPMITOOL_BIN=/usr/bin/ipmitool
-```
+- **Path:** `/etc/systemd/system/hs-fan-daemon.service`
+- That file is created once from the template when you first install; deploy and update **never overwrite it**, so your edits persist.
+- Editing the template in the repo has **no effect** on an already-installed system until you manually copy or merge it (see below).
+- Deploy and update scripts **never overwrite** the installed service file. If the template and your installed file get out of sync (e.g. a new release adds or removes options), the scripts will print a **bold warning** that manual intervention is required; see “To adopt new options from a newer template” below.
 
-To modify, edit the service file:
+**Edit the running service (recommended):**
 ```bash
 systemctl edit hs-fan-daemon.service
 ```
-
-Then add:
+Add or change lines under `[Service]`, for example:
 ```ini
 [Service]
-Environment=POLL_INTERVAL=10
+Environment=FAN_MIN_LEVEL=20
 ```
-
-Reload and restart:
+Then reload and restart:
 ```bash
 systemctl daemon-reload
 systemctl restart hs-fan-daemon
 ```
+
+**Or edit the unit file directly:** open `/etc/systemd/system/hs-fan-daemon.service` and change the values (each option is documented in the template with a comment above it).
+
+**To adopt new options from a newer template** (e.g. after an upgrade): copy the template from the repo to the server, then either replace the installed file (and re-apply your custom values) or merge the new `Environment=` lines in by hand. Example:
+
+```bash
+# From the repo on your machine or the cloned repo on the server:
+sudo cp systemd/hs-fan-daemon.service.template /etc/systemd/system/hs-fan-daemon.service
+# Then edit the file to set your preferred values (FAN_MIN_LEVEL, etc.)
+sudo systemctl daemon-reload
+sudo systemctl restart hs-fan-daemon
+```
+
+### Configuration reference
+
+| Variable | What it does | Default | When to change it |
+|----------|----------------|---------|--------------------|
+| **FAN_MIN_LEVEL** | Minimum fan speed in %. Allowed: 20, 30, 40. Idle never goes below this. | 40 | Set lower (e.g. 20) for quieter idle. |
+| **POLL_INTERVAL** | How often (seconds) the daemon reads temps and may update fan speed. | 5 | Increase (e.g. 10) to poll less often; decrease for faster response. |
+| **LOG_TAG** | Tag used in syslog and `journalctl -t ...`. | hs-fan-daemon | Only if you need a different log tag. |
+| **FAN_ZONES** | BMC fan zones to control (comma-separated). | 0x00,0x01,0x02 | If your H12 board uses different zones. |
+| **FAN_ZONE** | Legacy: single zone. If set, overrides FAN_ZONES. | — | Prefer **FAN_ZONES** for new configs. |
+| **FAN_MODE** | BMC fan mode. Must be 0x01 (Full Speed) for PWM control. | 0x01 | Do not change. |
+| **IPMITOOL_BIN** | Path to `ipmitool`. | /usr/bin/ipmitool | Only if `ipmitool` is elsewhere. |
+
+The template file in the repo has a short comment above each option.
 
 ## 🛠️ Management Commands
 
@@ -464,14 +487,14 @@ If `sensors` command fails:
 ```
 skyy-h12-fanctl/
 ├── scripts/
-│   └── hs-fan-daemon.sh          # Main fan control daemon (includes mode initialization)
+│   └── hs-fan-daemon.sh              # Main fan control daemon
 ├── systemd/
-│   └── hs-fan-daemon.service     # Daemon systemd service
-├── deploy.sh                      # Automated deployment script (idempotent)
-├── update.sh                      # Update script with backup functionality
-├── README.md                      # This file
-├── LICENSE                        # MIT License
-└── .gitignore                     # Git ignore rules
+│   └── hs-fan-daemon.service.template # Service unit template (copied once to /etc/systemd/system/ on first install)
+├── deploy.sh                          # Automated deployment (idempotent; does not overwrite existing service file)
+├── update.sh                          # Update daemon script only (never overwrites service file)
+├── README.md                          # This file
+├── LICENSE                            # MIT License
+└── .gitignore                         # Git ignore rules (includes systemd/hs-fan-daemon.service)
 ```
 
 ## 🤝 Contributing

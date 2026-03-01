@@ -19,6 +19,7 @@ set -eo pipefail
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 log_info() {
@@ -68,6 +69,20 @@ if ! git clone https://github.com/helloskyy-io/skyy-h12-fanctl.git "$TEMP_DIR" 2
     exit 1
 fi
 
+# If installed service file exists, check for config drift (template vs installed)
+if [ -f /etc/systemd/system/hs-fan-daemon.service ] && [ -f "$TEMP_DIR/systemd/hs-fan-daemon.service.template" ]; then
+    template_keys=$(grep -E '^Environment=' "$TEMP_DIR/systemd/hs-fan-daemon.service.template" 2>/dev/null | sed 's/^Environment=\([^=]*\)=.*/\1/' | sort -u)
+    installed_keys=$(grep -E '^Environment=' /etc/systemd/system/hs-fan-daemon.service 2>/dev/null | sed 's/^Environment=\([^=]*\)=.*/\1/' | sort -u)
+    missing_in_installed=$(comm -23 <(echo "$template_keys") <(echo "$installed_keys"))
+    extra_in_installed=$(comm -13 <(echo "$template_keys") <(echo "$installed_keys"))
+    if [ -n "$missing_in_installed" ] || [ -n "$extra_in_installed" ]; then
+        echo ""
+        echo -e "${BOLD}*** CONFIG DRIFT: The service template and your installed config do not match. ***${NC}"
+        echo -e "${BOLD}    Manual intervention required. See README for how to copy/merge the template.${NC}"
+        echo ""
+    fi
+fi
+
 # Check for changes
 CHANGED=false
 SERVICE_RUNNING=false
@@ -76,7 +91,7 @@ if systemctl is-active --quiet hs-fan-daemon.service 2>/dev/null; then
     SERVICE_RUNNING=true
 fi
 
-# Compare daemon script
+# Compare daemon script only (service file is never overwritten by update; user edits persist)
 if command -v md5sum >/dev/null 2>&1; then
     OLD_MD5=$(md5sum /usr/local/sbin/hs-fan-daemon.sh 2>/dev/null | cut -d' ' -f1)
     NEW_MD5=$(md5sum "$TEMP_DIR/scripts/hs-fan-daemon.sh" 2>/dev/null | cut -d' ' -f1)
@@ -87,36 +102,21 @@ if command -v md5sum >/dev/null 2>&1; then
     fi
 fi
 
-# Compare service file
-if [ -f /etc/systemd/system/hs-fan-daemon.service ]; then
-    if command -v md5sum >/dev/null 2>&1; then
-        OLD_SVC_MD5=$(md5sum /etc/systemd/system/hs-fan-daemon.service 2>/dev/null | cut -d' ' -f1)
-        NEW_SVC_MD5=$(md5sum "$TEMP_DIR/systemd/hs-fan-daemon.service" 2>/dev/null | cut -d' ' -f1)
-        
-        if [ "$OLD_SVC_MD5" != "$NEW_SVC_MD5" ]; then
-            CHANGED=true
-            log_info "Systemd service file has been updated."
-        fi
-    fi
-fi
-
 if [ "$CHANGED" = false ]; then
     log_info "Already running the latest version. No update needed."
     exit 0
 fi
 
-# Backup current installation (optional but good practice)
+# Backup current daemon script (service file is not overwritten, so not backed up here)
 BACKUP_DIR="/root/hs-fan-daemon-backup-$(date +%Y%m%d-%H%M%S)"
 log_info "Creating backup at $BACKUP_DIR..."
 mkdir -p "$BACKUP_DIR"
 cp /usr/local/sbin/hs-fan-daemon.sh "$BACKUP_DIR/" 2>/dev/null || true
-cp /etc/systemd/system/hs-fan-daemon.service "$BACKUP_DIR/" 2>/dev/null || true
 log_info "Backup created."
 
-# Install updated files
-log_info "Installing updated files..."
+# Install updated daemon script only (service unit is left as-is so your tuning persists)
+log_info "Installing updated daemon script..."
 install -m 755 "$TEMP_DIR/scripts/hs-fan-daemon.sh" /usr/local/sbin/hs-fan-daemon.sh
-install -m 644 "$TEMP_DIR/systemd/hs-fan-daemon.service" /etc/systemd/system/hs-fan-daemon.service
 
 # Reload systemd
 log_info "Reloading systemd daemon..."

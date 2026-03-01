@@ -42,6 +42,13 @@ fi
 # Polling interval in seconds
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 
+# Minimum fan level (%). Allowed: 20, 30, 40. Default 40; set lower in the service file if desired.
+FAN_MIN_LEVEL="${FAN_MIN_LEVEL:-40}"
+case "$FAN_MIN_LEVEL" in
+    20|30|40) ;;
+    *) FAN_MIN_LEVEL=40 ;;
+esac
+
 # Tag used in syslog
 LOG_TAG="${LOG_TAG:-hs-fan-daemon}"
 
@@ -340,7 +347,7 @@ main_loop() {
     local last_pwm=""
     local last_level=""
 
-    log_info "Starting main loop (interval=${POLL_INTERVAL}s, zones=${FAN_ZONES})."
+    log_info "Starting main loop (interval=${POLL_INTERVAL}s, zones=${FAN_ZONES}, min_fan=${FAN_MIN_LEVEL}%)."
 
     while true; do
         # Read current max Tctl
@@ -365,6 +372,11 @@ main_loop() {
             log_warn "Hysteresis returned invalid level '${new_level_raw}' for temp=${temp_int}°C. Skipping."
             sleep "$POLL_INTERVAL"
             continue
+        fi
+
+        # Enforce minimum fan level
+        if [ "$new_level" -lt "$FAN_MIN_LEVEL" ] 2>/dev/null; then
+            new_level="$FAN_MIN_LEVEL"
         fi
 
         # Convert to PWM hex
