@@ -390,8 +390,12 @@ main_loop() {
     local last_level=""
 
     log_info "Starting main loop (interval=${POLL_INTERVAL}s, zones=${FAN_ZONES}, floor=${FAN_MIN_LEVEL}% flat to ${FAN_MIN_TEMP}C, 100% at ${FAN_MAX_TEMP}C, write_delta=${FAN_WRITE_DELTA})."
-    # Stability guard: refuse to pretend a gain >= ~0.9 curve is safe.
-    if [ "$(( (100 - FAN_MIN_LEVEL) * 100 ))" -ge "$(( 225 * (FAN_MAX_TEMP - FAN_MIN_TEMP) ))" ]; then
+    # Stability guard. Warns at loop gain >= 0.9, i.e. slope >= 3.0 %/C, using
+    # the thermal response MEASURED on 2026-11-10 (0.3 C per duty point). The
+    # first version of this guard used an inferred 0.4 and so fired at slope
+    # 2.25, which is gain 0.68 and perfectly stable: it was warning about
+    # curves that work. The threshold is 100-floor >= 3 x (max - flat_to).
+    if [ "$(( 100 - FAN_MIN_LEVEL ))" -ge "$(( 3 * (FAN_MAX_TEMP - FAN_MIN_TEMP) ))" ]; then
         log_warn "Curve slope is steep enough that the control loop may OSCILLATE (loop gain approaching 1). Raise FAN_MAX_TEMP or lower FAN_MIN_TEMP."
     fi
     # Quantisation guard: FAN_WRITE_DELTA must EXCEED the slope in points-per-degree.
