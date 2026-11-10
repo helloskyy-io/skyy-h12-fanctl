@@ -14,11 +14,40 @@ Environment=POLL_INTERVAL=5
 # Tag used in syslog and journalctl (e.g. journalctl -t hs-fan-daemon).
 Environment=LOG_TAG=hs-fan-daemon
 #
-# BMC fan zones to control (comma-separated). H12: 0x00=general (FAN1..8), 0x01=CPU headers (FANA,FANB). 0x02/0x03 do nothing.
+# BMC fan zones to control (comma-separated). H12: 0x00=general (FAN1..8),
+# 0x01=the headers Supermicro LABELS as CPU (FANA, FANB). 0x02/0x03 do nothing.
+# The label is the board's, not a statement about what is plugged in: wiring
+# GPU or other auxiliary fans to zone 1 is supported and common. Do not infer
+# a fan's purpose from its header name when troubleshooting.
 Environment=FAN_ZONES=0x00,0x01
 #
-# Minimum fan speed in percent. Allowed: 20–100 in steps of 10. Default 40.
-Environment=FAN_MIN_LEVEL=40
+# ---- THE CURVE ----------------------------------------------------------
+# Duty is FLAT at FAN_MIN_LEVEL up to FAN_MIN_TEMP, then rises linearly to
+# 100% at FAN_MAX_TEMP. FAN_MIN_LEVEL is any integer 10..100; it is NOT
+# restricted to steps of 10, because the BMC duty register is a plain byte.
+#
+#   25% flat to 45C, 100% at 70C:   45C 25%   50C 40%   60C 70%   70C 100%
+#
+# TWO CONSTRAINTS, BOTH MEASURED ON H12DSi + EPYC 7002 ON 2026-11-10. Neither
+# is visible by reading these numbers, which is why the daemon warns at startup
+# when a config violates them.
+#
+#   1. slope x thermal_response < 1, or the control loop OSCILLATES.
+#      Thermal response is about 0.3C per duty point. slope here is
+#      (100 - FAN_MIN_LEVEL) / (FAN_MAX_TEMP - FAN_MIN_TEMP).
+#      Reaching 100% EARLIER makes the slope steeper, not safer.
+#
+#   2. FAN_WRITE_DELTA must EXCEED the slope in points per degree.
+#      Tctl arrives as whole degrees, so if 1C of jitter moves the target by a
+#      full deadband, the smallest reportable input change writes the BMC.
+#      Measured: slope 3.0 with delta 3 gave 13 writes in 5.4 minutes; delta 5
+#      on the identical slope gave 1.
+Environment=FAN_MIN_LEVEL=25
+Environment=FAN_MIN_TEMP=45
+Environment=FAN_MAX_TEMP=70
+#
+# Write deadband in duty points. See constraint 2 above before lowering it.
+Environment=FAN_WRITE_DELTA=5
 Restart=always
 RestartSec=5
 

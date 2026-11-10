@@ -40,12 +40,40 @@ fi
 # Polling interval in seconds
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 
-# Minimum fan level (%). Allowed: 20, 30, 40, 50, 60, 70, 80, 90, 100. Default 40.
-FAN_MIN_LEVEL="${FAN_MIN_LEVEL:-40}"
+# Minimum duty (%), held FLAT from 0 up to FAN_MIN_TEMP. Any integer 10..100.
+# No longer restricted to steps of 10: the BMC duty register is a plain byte,
+# which is observable in its own readback (a write of 30 reads back as 29).
+FAN_MIN_LEVEL="${FAN_MIN_LEVEL:-25}"
 case "$FAN_MIN_LEVEL" in
-    20|30|40|50|60|70|80|90|100) ;;
-    *) FAN_MIN_LEVEL=40 ;;
+    ''|*[!0-9]*) FAN_MIN_LEVEL=25 ;;
+    *) [ "$FAN_MIN_LEVEL" -lt 10 ]  && FAN_MIN_LEVEL=10
+       [ "$FAN_MIN_LEVEL" -gt 100 ] && FAN_MIN_LEVEL=100 ;;
 esac
+
+# THE RAMP. Duty is flat at FAN_MIN_LEVEL up to FAN_MIN_TEMP, then rises
+# linearly to 100% at FAN_MAX_TEMP.
+#
+#   floor 25%, flat to 45C, 100% at 85C  ->  slope 1.88 %/C
+#     45C 25%   55C 44%   65C 63%   75C 81%   85C 100%
+#
+# WHY THESE NUMBERS AND NOT STEEPER. This is a closed loop: duty changes
+# temperature, which changes duty. It converges only while
+#
+#     slope x thermal_response  <  1
+#
+# Measured on H12DSi with EPYC 7002: 10 duty points moves Tctl about 4C, so
+# thermal_response is about 0.4 C per point. At slope 1.88 the loop gain is
+# 0.75 and it settles. A "more responsive" curve reaching 100% at 70C instead
+# gives slope 3.0 and loop gain 1.2, and the fans oscillate indefinitely at
+# whatever band they land on. That is not a tuning preference, it is the
+# stability limit, and the guard in the main loop warns when a config crosses it.
+FAN_MIN_TEMP="${FAN_MIN_TEMP:-45}"
+FAN_MAX_TEMP="${FAN_MAX_TEMP:-85}"
+
+# Write deadband, in duty points. Hold the current duty until the computed
+# target has moved this far, so 1C of sensor jitter does not write the BMC
+# every POLL_INTERVAL. Stable at any width while loop gain stays below 1.
+FAN_WRITE_DELTA="${FAN_WRITE_DELTA:-3}"
 
 # Tag used in syslog
 LOG_TAG="${LOG_TAG:-hs-fan-daemon}"
@@ -169,8 +197,24 @@ level_to_pwm() {
     fi
 }
 
+# Duty (%) from temperature: flat floor, then a linear ramp. Replaces the
+# nine-bucket lookup, the nine-arm hysteresis table and its eighteen hardcoded
+# thresholds. Pure function of temperature, so it has no path dependence of its
+# own; the only hysteresis in the daemon is FAN_WRITE_DELTA, which is symmetric.
+pwm_from_temp() {
+    local t="$1"
+    [ "$t" -le "$FAN_MIN_TEMP" ] && { echo "$FAN_MIN_LEVEL"; return; }
+    [ "$t" -ge "$FAN_MAX_TEMP" ] && { echo 100; return; }
+    local span=$(( FAN_MAX_TEMP - FAN_MIN_TEMP ))
+    local rise=$(( 100 - FAN_MIN_LEVEL ))
+    local dt=$(( t - FAN_MIN_TEMP ))
+    echo $(( FAN_MIN_LEVEL + (dt * rise + span / 2) / span ))
+}
+
 # Initial level based purely on temperature (no hysteresis),
 # used only when there is no previous level recorded.
+# RETAINED UNUSED: kept so a rollback to the bucket design is a one-line
+# change in the main loop rather than a restore from git.
 #
 # Neutral bands:
 # < 35   -> 20%
@@ -345,7 +389,25 @@ main_loop() {
     local last_pwm=""
     local last_level=""
 
-    log_info "Starting main loop (interval=${POLL_INTERVAL}s, zones=${FAN_ZONES}, min_fan=${FAN_MIN_LEVEL}%)."
+    log_info "Starting main loop (interval=${POLL_INTERVAL}s, zones=${FAN_ZONES}, floor=${FAN_MIN_LEVEL}% flat to ${FAN_MIN_TEMP}C, 100% at ${FAN_MAX_TEMP}C, write_delta=${FAN_WRITE_DELTA})."
+    # Stability guard. Warns at loop gain >= 0.9, i.e. slope >= 3.0 %/C, using
+    # the thermal response MEASURED on 2026-11-10 (0.3 C per duty point). The
+    # first version of this guard used an inferred 0.4 and so fired at slope
+    # 2.25, which is gain 0.68 and perfectly stable: it was warning about
+    # curves that work. The threshold is 100-floor >= 3 x (max - flat_to).
+    if [ "$(( 100 - FAN_MIN_LEVEL ))" -ge "$(( 3 * (FAN_MAX_TEMP - FAN_MIN_TEMP) ))" ]; then
+        log_warn "Curve slope is steep enough that the control loop may OSCILLATE (loop gain approaching 1). Raise FAN_MAX_TEMP or lower FAN_MIN_TEMP."
+    fi
+    # Quantisation guard: FAN_WRITE_DELTA must EXCEED the slope in points-per-degree.
+    # Tctl arrives as whole degrees, so if one degree of sensor jitter moves the
+    # target by a full deadband, the smallest reportable input change writes the
+    # BMC. Measured 2026-11-10 on puma-server-204: slope 3.0 with delta 3 gave 13
+    # writes in 5.4 minutes, flipping 3 points up and down on 1C of noise; delta 5
+    # on the identical slope gave 1. This is NOT the loop instability above, which
+    # is about gain; it is the input's resolution against the deadband.
+    if [ "$(( FAN_WRITE_DELTA * (FAN_MAX_TEMP - FAN_MIN_TEMP) ))" -le "$(( 100 - FAN_MIN_LEVEL ))" ]; then
+        log_warn "FAN_WRITE_DELTA=${FAN_WRITE_DELTA} is not larger than the curve slope, so 1C of sensor jitter will write the BMC. Raise FAN_WRITE_DELTA."
+    fi
 
     while true; do
         # Read current max Tctl
@@ -360,39 +422,33 @@ main_loop() {
         # Strip decimal part: "57.8" -> "57"
         local temp_int="${cpu_temp%.*}"
 
-        # Decide next level using hysteresis
-        local new_level_raw
-        new_level_raw="$(next_level_with_hysteresis "$temp_int" "$last_level")"
+        # Target duty straight from the curve.
+        local want
+        want="$(pwm_from_temp "$temp_int")"
 
-        # Sanitize level to digits only
-        local new_level="${new_level_raw//[^0-9]/}"
-        if [ -z "$new_level" ]; then
-            log_warn "Hysteresis returned invalid level '${new_level_raw}' for temp=${temp_int}°C. Skipping."
-            sleep "$POLL_INTERVAL"
-            continue
+        # Write deadband: hold the current duty until the target moves far enough.
+        local new_duty
+        if [ -z "$last_level" ]; then
+            new_duty="$want"
+        else
+            local d=$(( want - last_level ))
+            [ "$d" -lt 0 ] && d=$(( -d ))
+            if [ "$d" -ge "$FAN_WRITE_DELTA" ]; then
+                new_duty="$want"
+            else
+                new_duty="$last_level"
+            fi
         fi
 
-        # Enforce minimum fan level
-        if [ "$new_level" -lt "$FAN_MIN_LEVEL" ] 2>/dev/null; then
-            new_level="$FAN_MIN_LEVEL"
-        fi
-
-        # Convert to PWM hex
         local pwm
-        pwm="$(level_to_pwm "$new_level")"
-        if [ -z "$pwm" ]; then
-            log_warn "Computed invalid fan level '${new_level}' for temp=${temp_int}°C. Skipping."
-            sleep "$POLL_INTERVAL"
-            continue
-        fi
+        pwm="$(printf '0x%02X' "$new_duty")"
 
-        # Apply PWM if changed
         local prev_pwm="$last_pwm"
         last_pwm="$(apply_pwm_if_changed "$pwm" "$last_pwm")"
-        last_level="$new_level"
+        last_level="$new_duty"
 
         if [ "$last_pwm" != "$prev_pwm" ]; then
-            log_info "Temp=${temp_int}°C, level=${last_level}%, PWM=${last_pwm}."
+            log_info "Temp=${temp_int}°C, duty=${new_duty}% (target ${want}%), PWM=${last_pwm}."
         fi
 
         sleep "$POLL_INTERVAL"
